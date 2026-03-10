@@ -1,0 +1,47 @@
+,,,,
+,YOLOv8n Posit16 FPGA — 3-Person Team Plan,,,
+,,,,
+,TEAM ROLES,,,
+,Role,Person,Primary Responsibility,Skills Needed
+,"Person A
+(RTL — LIGHTER LOAD)",,"Hybrid PE RTL modification
+Parameterized array generate loop
+Reduction tree scaling
+Timing closure support","SystemVerilog / Verilog
+Vivado synthesis
+Posit number format understanding"
+,"Person B
+(Software + PS)",,"PYNQ setup & driver code
+ARM NEON 1×1 conv kernel
+Posit16↔INT16 converter (C code)
+Frame capture + preprocessing
+NMS + post-processing
+Asyncio pipeline
+mAP benchmarking script","Python (PYNQ, numpy, OpenCV)
+C/C++ (ARM NEON intrinsics)
+Linux on Zynq
+PyTorch (for validation)"
+,"Person C
+(Integration + Vivado)",,"Vivado block design (AXI DMA, interconnect)
+Layer controller FSM (RTL or HLS)
+Im2col buffer
+Weight DMA double-buffering
+BRAM/URAM memory mapping
+Full system integration & debug","Vivado block design & IP integrator
+AXI protocol understanding
+FSM design (Verilog or HLS)
+Vivado ILA debug"
+,,,,
+,,,,
+,"DAY 0 — SETUP CHECKLIST (All 3 people, before Day 1)",,,
+,Item,Owner,Details,Done?
+,Git repository,Any,"Create shared repo with branches: rtl/, software/, integration/",☐
+,Vivado 2022.x installed,A + C,Same version on both machines. ZCU104 board files installed.,☐
+,PYNQ SD image flashed,B,PYNQ v3.0.1 on ZCU104. SSH working. Jupyter accessible.,☐
+,ZCU104 board working,B + C,"Power on, UART console, HDMI passthrough test with base overlay.",☐
+,PyTorch + Ultralytics,B,pip install ultralytics. Download yolov8n.pt. Run test inference on PC.,☐
+,SoftPosit library,A,Build SoftPosit for x86 (validation) and ARM (optional PS use).,☐
+,PDPU code imported,A,Current pdpu_code.zip unpacked in repo. Vivado sim project created.,☐
+,COCO val2017 downloaded,B,5000 images + annotations. On PC and copied to ZCU104 SD card.,☐
+,Weight conversion script,B,Python: load yolov8n.pt → fold BN → convert FP32 → Posit16 → binary.,☐
+,Camera / HDMI source,Any,USB webcam or HDMI camera available and tested with PYNQ base overlay.,☐
