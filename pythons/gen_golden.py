@@ -25,32 +25,35 @@ os.makedirs(OUTDIR, exist_ok=True)
 NBITS      = 16
 ES         = 1
 REGIME_MAX = 3
-USEED      = 4
+USEED      = 4.0
 MAXPOS_V   = float(USEED ** REGIME_MAX)
 MINPOS_V   = 1.0 / MAXPOS_V
 NAR_BITS   = 0x8000
 ZERO_BITS  = 0x0000
 
-def _clamp(x, lo, hi):
+def _clamp_int(x: int, lo: int, hi: int) -> int:
     return lo if x < lo else (hi if x > hi else x)
 
-def posit16_decode(bits):
+def _clamp_float(x: float, lo: float, hi: float) -> float:
+    return lo if x < lo else (hi if x > hi else x)
+
+def posit16_decode(bits) -> float:
     bits = int(bits) & 0xFFFF
     if bits == ZERO_BITS: return 0.0
     if bits == NAR_BITS:  return float('inf')
-    sign = 1 if (bits >> 15) == 0 else -1
-    if sign == -1:
+    sign: float = 1.0 if (bits >> 15) == 0 else -1.0
+    if sign == -1.0:
         bits = ((~bits) + 1) & 0xFFFF
-    body = bits & 0x7FFF
-    rbit = (body >> 14) & 1
-    run  = 0
+    body: int = bits & 0x7FFF
+    rbit: int = (body >> 14) & 1
+    run: int = 0
     for i in range(14, -1, -1):
         if ((body >> i) & 1) == rbit:
             run += 1
         else:
             break
-    k        = (run - 1) if rbit == 1 else (-run)
-    k        = _clamp(k, -REGIME_MAX, REGIME_MAX)
+    k: int   = (run - 1) if rbit == 1 else (0 - run)
+    k        = _clamp_int(k, -REGIME_MAX, REGIME_MAX)
     consumed = run + (1 if run < 15 else 0)
     exp_start = 14 - consumed
     e = 0
@@ -62,9 +65,11 @@ def posit16_decode(bits):
     if frac_bits > 0:
         frac_int = body & ((1 << frac_bits) - 1)
         f_val = frac_int / (1 << frac_bits)
-    return sign * (USEED ** k) * (2 ** e) * (1.0 + f_val)
+    useed_pow: float = float(USEED ** k)
+    exp_pow: float = 2.0 ** e
+    return sign * useed_pow * exp_pow * (1.0 + f_val)
 
-def posit16_encode(value):
+def posit16_encode(value: float) -> int:
     if value == 0.0:             return ZERO_BITS
     if math.isnan(value):        return NAR_BITS
     if math.isinf(value):        return NAR_BITS
@@ -73,35 +78,38 @@ def posit16_encode(value):
     value = max(MINPOS_V, min(MAXPOS_V, value))
     log_u = math.log(value) / math.log(USEED)
     k = int(math.floor(log_u))
-    k = _clamp(k, -REGIME_MAX, REGIME_MAX)
-    remaining = value / (USEED ** k)
+    k = _clamp_int(k, -REGIME_MAX, REGIME_MAX)
+    remaining = value / float(USEED ** k)
     remaining = max(1.0, remaining)
     e = int(math.floor(math.log2(remaining)))
-    e = _clamp(e, 0, (1 << ES) - 1)
-    remaining /= (2 ** e)
+    e = _clamp_int(e, 0, (1 << ES) - 1)
+    remaining /= (2.0 ** e)
     remaining  = max(1.0, remaining)
     frac_float = remaining - 1.0
-    body = 0
-    pos  = 14
+    parts: list[int] = []
+    pos: int = 14
     if k >= 0:
         for _ in range(k + 1):
-            if pos >= 0: body |= (1 << pos)
-            pos -= 1
-        if pos >= 0: pos -= 1
+            if pos >= 0:
+                parts.append(1 << pos)
+            pos = pos - 1
+        if pos >= 0:
+            pos = pos - 1
     else:
         for _ in range(-k):
-            pos -= 1
-        if pos >= 0: body |= (1 << pos)
-        pos -= 1
+            pos = pos - 1
+        if pos >= 0:
+            parts.append(1 << pos)
+        pos = pos - 1
     if pos >= 0:
-        body |= (e << pos)
-        pos -= 1
-    frac_bits = pos + 1
+        parts.append(e << pos)
+        pos = pos - 1
+    frac_bits: int = pos + 1
     if frac_bits > 0:
-        frac_int = round(frac_float * (1 << frac_bits))
+        frac_int: int = int(round(frac_float * (1 << frac_bits)))
         frac_int = min(frac_int, (1 << frac_bits) - 1)
-        body |= frac_int
-    body &= 0x7FFF
+        parts.append(frac_int)
+    body: int = sum(parts) & 0x7FFF
     if sign == 1:
         return ((~body) + 1) & 0xFFFF
     return body
@@ -117,9 +125,9 @@ def p16_add(a, b):
     if b == ZERO_BITS: return a
     return posit16_encode(posit16_decode(a) + posit16_decode(b))
 
-def p16_neg(bits):
+def p16_neg(bits: int) -> int:
     if bits in (ZERO_BITS, NAR_BITS): return bits
-    return ((~bits) + 1) & 0xFFFF
+    return ((~int(bits)) + 1) & 0xFFFF
 
 def rand_pos():
     return random.randint(0x0001, 0x7FFE)
