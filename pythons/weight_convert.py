@@ -117,11 +117,13 @@ def extract_yolov8n_layers(model_path: str):
 
                 for bn_candidate in [bn_name, name.replace('conv', 'bn')]:
                     bn_weight_key = f"{bn_candidate}.weight"
-                    if bn_weight_key in state:
+                    bn_mean_key = f"{bn_candidate}.running_mean"
+                    # Must check for running_mean too — some non-BN layers also have .weight
+                    if bn_weight_key in state and bn_mean_key in state:
                         layer_info['bn_params'] = {
                             'weight': state[f"{bn_candidate}.weight"].cpu().numpy(),
                             'bias': state[f"{bn_candidate}.bias"].cpu().numpy(),
-                            'mean': state[f"{bn_candidate}.running_mean"].cpu().numpy(),
+                            'mean': state[bn_mean_key].cpu().numpy(),
                             'var': state[f"{bn_candidate}.running_var"].cpu().numpy(),
                         }
                         break

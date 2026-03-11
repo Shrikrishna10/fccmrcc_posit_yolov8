@@ -13,9 +13,13 @@ import math
 import os
 import sys
 
-# Add parent for Posit16 class
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gen_golden_vectors import Posit16, POSIT_WIDTH
+# Import Posit16 class from sibling module
+try:
+    from .gen_golden_vectors import Posit16, POSIT_WIDTH
+except ImportError:
+    # Fallback for direct script execution (python gen_silu_lut.py)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gen_golden_vectors import Posit16, POSIT_WIDTH
 
 
 def silu(x: float) -> float:
@@ -32,7 +36,7 @@ def generate_silu_lut(output_dir: str = "."):
     LUT_DEPTH = 1024
     filepath = os.path.join(output_dir, "silu_lut.hex")
 
-    print(f"Generating SiLU LUT ({LUT_DEPTH} entries) → {filepath}")
+    print(f"Generating SiLU LUT ({LUT_DEPTH} entries) -> {filepath}")
 
     entries = []
     for addr in range(LUT_DEPTH):
@@ -82,4 +86,4 @@ def generate_silu_lut(output_dir: str = "."):
 if __name__ == "__main__":
     output_dir = sys.argv[1] if len(sys.argv) > 1 else "."
     generate_silu_lut(output_dir)
-    print("✓ SiLU LUT generated")
+    print("[OK] SiLU LUT generated")
