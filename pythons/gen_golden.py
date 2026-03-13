@@ -40,7 +40,7 @@ def _clamp_float(x: float, lo: float, hi: float) -> float:
 def posit16_decode(bits) -> float:
     bits = int(bits) & 0xFFFF
     if bits == ZERO_BITS: return 0.0
-    if bits == NAR_BITS:  return float('inf')
+    if bits == NAR_BITS:  return float('nan')  # FIX: was float('inf'), NaR = Not a Real
     sign: float = 1.0 if (bits >> 15) == 0 else -1.0
     if sign == -1.0:
         bits = ((~bits) + 1) & 0xFFFF
@@ -162,6 +162,12 @@ for v in [1.0, 2.0, 4.0, 16.0, 64.0, 0.5, 0.25, 0.125]:
     if not ok: all_ok = False
 if not all_ok:
     raise SystemExit("ENCODE ROUND-TRIP FAILED")
+
+# NaR sanity
+nar_decoded = posit16_decode(NAR_BITS)
+assert math.isnan(nar_decoded), f"NaR should decode to nan, got {nar_decoded}"
+assert posit16_encode(float('nan')) == NAR_BITS, "nan should encode to NaR"
+print("  NaR round-trip OK")
 print("All sanity checks passed.\n")
 
 # ── 1. Mitchell correction LUT ────────────────────────────────────────────────

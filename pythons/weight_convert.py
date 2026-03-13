@@ -80,6 +80,53 @@ def save_bin_file(posit_arr: np.ndarray, filepath: str):
     posit_arr.astype(np.uint16).tofile(filepath)
 
 
+def _find_bn_params(state: dict, conv_name: str) -> dict | None:
+    """Robustly find BatchNorm parameters associated with a Conv layer.
+    
+    YOLOv8n uses these patterns:
+      - model.X.conv → model.X.bn            (standard Conv→BN in backbone/neck)
+      - model.X.cvY.Z.conv → model.X.cvY.Z.bn (inside C2f bottleneck)
+      - model.22.cv2.0.0  → model.22.cv2.0.1  (detection head, different numbering)
+    
+    Returns dict with weight/bias/mean/var or None if no BN found.
+    """
+    # Build candidate BN prefixes
+    candidates = []
+    
+    # Pattern 1: replace trailing '.conv' with '.bn'
+    if conv_name.endswith('.conv'):
+        candidates.append(conv_name[:-5] + '.bn')
+    
+    # Pattern 2: parent + '.bn'
+    parts = conv_name.rsplit('.', 1)
+    if len(parts) == 2:
+        candidates.append(parts[0] + '.bn')
+    
+    # Pattern 3: for numbered layers like model.X.cv2.0.0 → model.X.cv2.0.1
+    # (Conv at index 0, BN at index 1 within a Sequential)
+    if parts[-1].isdigit():
+        idx = int(parts[-1])
+        candidates.append(parts[0] + f'.{idx + 1}')
+    
+    for bn_prefix in candidates:
+        # Check ALL four required BN keys exist
+        required_keys = [
+            f"{bn_prefix}.weight",
+            f"{bn_prefix}.bias",
+            f"{bn_prefix}.running_mean",
+            f"{bn_prefix}.running_var",
+        ]
+        if all(k in state for k in required_keys):
+            return {
+                'weight': state[f"{bn_prefix}.weight"].cpu().numpy(),
+                'bias': state[f"{bn_prefix}.bias"].cpu().numpy(),
+                'mean': state[f"{bn_prefix}.running_mean"].cpu().numpy(),
+                'var': state[f"{bn_prefix}.running_var"].cpu().numpy(),
+            }
+    
+    return None
+
+
 def extract_yolov8n_layers(model_path: str):
     """Extract layer information from YOLOv8n model.
 
@@ -110,23 +157,12 @@ def extract_yolov8n_layers(model_path: str):
                     'bn_params': None
                 }
 
-                # Look for associated BN layer
-                # YOLOv8 typically has conv→bn→silu pattern
-                parent_name = '.'.join(name.split('.')[:-1])
-                bn_name = parent_name + '.bn' if parent_name else 'bn'
-
-                for bn_candidate in [bn_name, name.replace('conv', 'bn')]:
-                    bn_weight_key = f"{bn_candidate}.weight"
-                    bn_mean_key = f"{bn_candidate}.running_mean"
-                    # Must check for running_mean too — some non-BN layers also have .weight
-                    if bn_weight_key in state and bn_mean_key in state:
-                        layer_info['bn_params'] = {
-                            'weight': state[f"{bn_candidate}.weight"].cpu().numpy(),
-                            'bias': state[f"{bn_candidate}.bias"].cpu().numpy(),
-                            'mean': state[bn_mean_key].cpu().numpy(),
-                            'var': state[f"{bn_candidate}.running_var"].cpu().numpy(),
-                        }
-                        break
+                # Robust BN lookup
+                bn_params = _find_bn_params(state, name)
+                if bn_params is not None:
+                    layer_info['bn_params'] = bn_params
+                else:
+                    print(f"         [INFO] No BN found for {name} — using raw conv weights")
 
                 layers.append(layer_info)
                 layer_idx += 1
@@ -212,7 +248,8 @@ def main():
 
         table_writer = csv.writer(tf)
         table_writer.writerow(['idx', 'name', 'type', 'kernel', 'c_in', 'c_out',
-                               'stride', 'weight_file', 'bias_file', 'num_weights'])
+                               'stride', 'weight_file', 'bias_file', 'num_weights',
+                               'has_bn'])
 
         stats_writer = csv.writer(sf)
         stats_writer.writerow(['idx', 'name', 'w_min', 'w_max', 'w_mean', 'w_std',
@@ -221,14 +258,16 @@ def main():
         for layer in layers:
             idx = layer['idx']
             name = layer['name']
+            has_bn = layer['bn_params'] is not None
             print(f"  [{idx:3d}] {name}: {layer['type']} "
-                  f"k={layer['kernel_size']} cin={layer['c_in']} cout={layer['c_out']}")
+                  f"k={layer['kernel_size']} cin={layer['c_in']} cout={layer['c_out']}"
+                  f" {'(+BN)' if has_bn else '(no BN)'}")
 
             # Fold BN if present
             w = layer['weight']
             b = layer['bias'] if layer['bias'] is not None else np.zeros(w.shape[0])
 
-            if layer['bn_params'] is not None:
+            if has_bn:
                 bn = layer['bn_params']
                 w, b = fold_bn_into_conv(w, b, bn['weight'], bn['bias'],
                                          bn['mean'], bn['var'])
@@ -255,7 +294,7 @@ def main():
             # Write table entries
             table_writer.writerow([idx, name, layer['type'], layer['kernel_size'],
                                    layer['c_in'], layer['c_out'], layer['stride'],
-                                   w_hex, b_hex, len(w_posit)])
+                                   w_hex, b_hex, len(w_posit), has_bn])
 
             stats_writer.writerow([idx, name, f"{w.min():.6f}", f"{w.max():.6f}",
                                    f"{w.mean():.6f}", f"{w.std():.6f}",
